@@ -31,44 +31,40 @@ namespace graphconsoleapp
 
             var client = GetAuthenticatedHTTPClient(config, userName, userPassword);
 
-            var totalRequests = 100;
-            var successRequests = 0;
-            var tasks = new List<Task>();
-            var failResponseCode = HttpStatusCode.OK;
-            HttpResponseHeaders failedHeaders = null;
+            var stopwatch = new System.Diagnostics.Stopwatch();
+            stopwatch.Start();
 
-            for (int i = 0; i < totalRequests; i++)
+            var clientResponse = client.GetAsync("https://graph.microsoft.com/v1.0/me/messages?$select=id&$top=100").Result;
+            // enumerate through the list of messages
+            var httpResponseTask = clientResponse.Content.ReadAsStringAsync();
+            httpResponseTask.Wait();
+            var graphMessages = JsonConvert.DeserializeObject<Messages>(httpResponseTask.Result);
+
+            var tasks = new List<Task>();
+            foreach(var graphMessage in graphMessages.Items)
             {
-                tasks.Add(Task.Run(() =>
-                {
-                    var response = client.GetAsync("https://graph.microsoft.com/v1.0/me/messages").Result;
-                    Console.Write(".");
-                    if (response.StatusCode == HttpStatusCode.OK)
-                    {
-                        successRequests++;
-                    }
-                    else
-                    {
-                        Console.Write('X');
-                        failResponseCode = response.StatusCode;
-                        failedHeaders = response.Headers;
-                    }
+                tasks.Add(Task.Run(() => {
+
+                Console.WriteLine("...retrieving message: {0}", graphMessage.Id);
+
+                var messageDetail = GetMessageDetail(client, graphMessage.Id);
+
+                Console.WriteLine("SUBJECT: {0}", messageDetail.Subject);
+
                 }));
             }
 
+            // do all work in parallel & wait for it to complete
             var allWork = Task.WhenAll(tasks);
             try
             {
                 allWork.Wait();
             }
-            catch { }
+            catch {}
+
+            stopwatch.Stop();
             Console.WriteLine();
-            Console.WriteLine("{0}/{1} requests succeeded.", successRequests, totalRequests);
-            if (successRequests != totalRequests)
-            {
-                Console.WriteLine("Failed response code: {0}", failResponseCode.ToString());
-                Console.WriteLine("Failed response headers: {0}", failedHeaders);
-            }
+            Console.WriteLine("Elapsed time: {0} seconds", stopwatch.Elapsed.Seconds);
         }     
      
         private static IConfigurationRoot LoadAppSettings()
