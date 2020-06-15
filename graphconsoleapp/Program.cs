@@ -15,6 +15,9 @@ namespace graphconsoleapp
 {
   class Program
   {
+    private static object _deltaLink = null;
+    private static IUserDeltaCollectionPage _previousPage = null;
+
     static void Main(string[] args)
     {
       Console.WriteLine("Hello World!");
@@ -29,44 +32,16 @@ namespace graphconsoleapp
       var userName = ReadUsername();
       var userPassword = ReadPassword();
 
-      var client = GetAuthenticatedGraphClient(config, userName, userPassword);
-
-      var stopwatch = new System.Diagnostics.Stopwatch();
-      stopwatch.Start();
-
-      var clientResponse = client.Me.Messages
-                                    .Request()
-                                    .Select(m => new { m.Id })
-                                    .Top(100)
-                                    .GetAsync()
-                                    .Result;
-
-      var tasks = new List<Task>();
-      foreach (var graphMessage in clientResponse.CurrentPage)
-      {
-        tasks.Add(Task.Run(() =>
-        {
-
-          Console.WriteLine("...retrieving message: {0}", graphMessage.Id);
-
-          var messageDetail = GetMessageDetail(client, graphMessage.Id);
-
-          Console.WriteLine("SUBJECT: {0}", messageDetail.Subject);
-
-        }));
-      }
-
-      // do all work in parallel & wait for it to complete
-      var allWork = Task.WhenAll(tasks);
-      try
-      {
-        allWork.Wait();
-      }
-      catch { }
-
-      stopwatch.Stop();
+      Console.WriteLine("All users in tenant:");
+      CheckForUpdates(config, userName, userPassword);
       Console.WriteLine();
-      Console.WriteLine("Elapsed time: {0} seconds", stopwatch.Elapsed.Seconds);
+      while (true)
+      {
+        Console.WriteLine("... sleeping for 10s - press CTRL+C to terminate");
+        System.Threading.Thread.Sleep(10 * 1000);
+        Console.WriteLine("> Checking for new/updated users since last query...");
+        CheckForUpdates(config, userName, userPassword);
+      }
     }
 
     private static IConfigurationRoot LoadAppSettings()
@@ -144,6 +119,65 @@ namespace graphconsoleapp
     {
       // submit request to Microsoft Graph & wait to process response
       return client.Me.Messages[messageId].Request().GetAsync().Result;
+    }
+
+    private static void OutputUsers(IUserDeltaCollectionPage users)
+    {
+      foreach (var user in users)
+      {
+        Console.WriteLine($"User: {user.Id}, {user.GivenName} {user.Surname}");
+      }
+    }
+
+    private static IUserDeltaCollectionPage GetUsers(GraphServiceClient graphClient, object deltaLink)
+    {
+      IUserDeltaCollectionPage page;
+
+      // IF this is the first request (previous=null), then request all users
+      //    and include Delta() to request a delta link to be included in the
+      //    last page of data
+      if (_previousPage == null)
+      {
+        page = graphClient.Users
+                          .Delta()
+                          .Request()
+                          .Select("Id,GivenName,Surname")
+                          .GetAsync()
+                          .Result;
+      }
+      // ELSE, not the first page so get the next page of users
+      else
+      {
+        _previousPage.InitializeNextPageRequest(graphClient, deltaLink.ToString());
+        page = _previousPage.NextPageRequest.GetAsync().Result;
+      }
+
+      _previousPage = page;
+      return page;
+    }
+
+    private static void CheckForUpdates(IConfigurationRoot config, string userName, SecureString userPassword)
+    {
+      var graphClient = GetAuthenticatedGraphClient(config, userName, userPassword);
+
+      // get a page of users
+      var users = GetUsers(graphClient, _deltaLink);
+
+      OutputUsers(users);
+
+      // go through all of the pages so that we can get the delta link on the last page.
+      while (users.NextPageRequest != null)
+      {
+        users = users.NextPageRequest.GetAsync().Result;
+        OutputUsers(users);
+      }
+
+      object deltaLink;
+
+      if (users.AdditionalData.TryGetValue("@odata.deltaLink", out deltaLink))
+      {
+        _deltaLink = deltaLink;
+      }
     }
   }
 }
