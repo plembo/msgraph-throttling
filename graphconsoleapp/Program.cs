@@ -29,19 +29,20 @@ namespace graphconsoleapp
       var userName = ReadUsername();
       var userPassword = ReadPassword();
 
-      var client = GetAuthenticatedHTTPClient(config, userName, userPassword);
+      var client = GetAuthenticatedGraphClient(config, userName, userPassword);
 
       var stopwatch = new System.Diagnostics.Stopwatch();
       stopwatch.Start();
 
-      var clientResponse = client.GetAsync("https://graph.microsoft.com/v1.0/me/messages?$select=id&$top=100").Result;
-      // enumerate through the list of messages
-      var httpResponseTask = clientResponse.Content.ReadAsStringAsync();
-      httpResponseTask.Wait();
-      var graphMessages = JsonConvert.DeserializeObject<Messages>(httpResponseTask.Result);
+      var clientResponse = client.Me.Messages
+                                    .Request()
+                                    .Select(m => new { m.Id })
+                                    .Top(100)
+                                    .GetAsync()
+                                    .Result;
 
       var tasks = new List<Task>();
-      foreach (var graphMessage in graphMessages.Items)
+      foreach (var graphMessage in clientResponse.CurrentPage)
       {
         tasks.Add(Task.Run(() =>
         {
@@ -106,11 +107,11 @@ namespace graphconsoleapp
       return MsalAuthenticationProvider.GetInstance(cca, scopes.ToArray(), userName, userPassword);
     }
 
-    private static HttpClient GetAuthenticatedHTTPClient(IConfigurationRoot config, string userName, SecureString userPassword)
+    private static GraphServiceClient GetAuthenticatedGraphClient(IConfigurationRoot config, string userName, SecureString userPassword)
     {
       var authenticationProvider = CreateAuthorizationProvider(config, userName, userPassword);
-      var httpClient = new HttpClient(new AuthHandler(authenticationProvider, new HttpClientHandler()));
-      return httpClient;
+      var graphClient = new GraphServiceClient(authenticationProvider);
+      return graphClient;
     }
 
     private static SecureString ReadPassword()
@@ -139,45 +140,10 @@ namespace graphconsoleapp
       return username;
     }
 
-    private static Message GetMessageDetail(HttpClient client, string messageId, int defaultDelay = 2)
+    private static Message GetMessageDetail(GraphServiceClient client, string messageId)
     {
-      Message messageDetail = null;
-
-      string endpoint = "https://graph.microsoft.com/v1.0/me/messages/" + messageId;
-
       // submit request to Microsoft Graph & wait to process response
-      var clientResponse = client.GetAsync(endpoint).Result;
-      var httpResponseTask = clientResponse.Content.ReadAsStringAsync();
-      httpResponseTask.Wait();
-
-      Console.WriteLine("...Response status code: {0}  ", clientResponse.StatusCode);
-
-      // IF request successful (not throttled), set message to retrieved message
-      if (clientResponse.StatusCode == HttpStatusCode.OK)
-      {
-        messageDetail = JsonConvert.DeserializeObject<Message>(httpResponseTask.Result);
-      }
-      // ELSE IF request was throttled (429, aka: TooManyRequests)...
-      else if (clientResponse.StatusCode == HttpStatusCode.TooManyRequests)
-      {
-        // get retry-after if provided; if not provided default to 2s
-        int retryAfterDelay = defaultDelay;
-        if (clientResponse.Headers.RetryAfter.Delta.HasValue && (clientResponse.Headers.RetryAfter.Delta.Value.Seconds > 0))
-        {
-          retryAfterDelay = clientResponse.Headers.RetryAfter.Delta.Value.Seconds;
-        }
-
-        // wait for specified time as instructed by Microsoft Graph's Retry-After header,
-        //    or fall back to default
-        Console.WriteLine(">>>>>>>>>>>>> sleeping for {0} seconds...", retryAfterDelay);
-        System.Threading.Thread.Sleep(retryAfterDelay * 1000);
-
-        // call method again after waiting
-        messageDetail = GetMessageDetail(client, messageId);
-      }
-      // add code here
-
-      return messageDetail;
+      return client.Me.Messages[messageId].Request().GetAsync().Result;
     }
   }
 }
