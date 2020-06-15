@@ -148,7 +148,6 @@ namespace graphconsoleapp
 
             string endpoint = "https://graph.microsoft.com/v1.0/me/messages/" + messageId;
 
-  
             // submit request to Microsoft Graph & wait to process response
             var clientResponse = client.GetAsync(endpoint).Result;
             var httpResponseTask = clientResponse.Content.ReadAsStringAsync();
@@ -160,17 +159,18 @@ namespace graphconsoleapp
             if (clientResponse.StatusCode == HttpStatusCode.OK)
             {
                 messageDetail = JsonConvert.DeserializeObject<Message>(httpResponseTask.Result);
-            }            
-
+            }
             // ELSE IF request was throttled (429, aka: TooManyRequests)...
             else if (clientResponse.StatusCode == HttpStatusCode.TooManyRequests)
             {
                 // get retry-after if provided; if not provided default to 2s
                 int retryAfterDelay = defaultDelay;
-                 if (clientResponse.Headers.RetryAfter.Delta.HasValue && (clientResponse.Headers.RetryAfter.Delta.Value.Seconds > 0))
+                if (clientResponse.Headers.RetryAfter.Delta.HasValue
+                    && (clientResponse.Headers.RetryAfter.Delta.Value.Seconds > 0)
+                    )
                 {
                     retryAfterDelay = clientResponse.Headers.RetryAfter.Delta.Value.Seconds;
-                }         
+                }
 
                 // wait for specified time as instructed by Microsoft Graph's Retry-After header,
                 //    or fall back to default
@@ -179,11 +179,9 @@ namespace graphconsoleapp
 
                 // call method again after waiting
                 messageDetail = GetMessageDetail(client, messageId);
-            }      
-            // add code here
+            }
 
             return messageDetail;
         }
-       
     }
 }
