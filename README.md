@@ -1,4 +1,4 @@
-# Microsoft Graph Console App 2
+# Microsoft Graph: Understanding Throttling
 From "Build Apps with Microsoft Graph -- Associate" learning path.
 
 https://docs.microsoft.com/en-us/learn/paths/m365-msgraph-associate/
@@ -12,3 +12,6 @@ https://docs.microsoft.com/en-us/learn/modules/optimize-network-traffic/3-exerci
 Companion source repository:
 
 https://github.com/microsoftgraph/msgraph-training-optimize-network-traffic
+
+NOTE: The example code does not work with MFA enabled for the account used
+to log in.
